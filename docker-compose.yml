@@ -1,0 +1,70 @@
+version: '3.8'
+
+services:
+  # MongoDB Persistent Store
+  mongo:
+    image: mongo:7.0
+    container_name: pollpulse-mongo
+    restart: unless-stopped
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo_data:/data/db
+    networks:
+      - pollpulse-net
+
+  # Redis Real-Time Counts & Pub/Sub
+  redis:
+    image: redis:7-alpine
+    container_name: pollpulse-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - pollpulse-net
+
+  # Go Gin Backend API & WebSocket Hub
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: pollpulse-backend
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      - PORT=8080
+      - MONGO_URI=mongodb://mongo:27017
+      - DB_NAME=livepolling
+      - REDIS_URL=redis:6379
+      - JWT_SECRET=production_jwt_secret_live_polling_2026
+      - FRONTEND_URL=http://localhost:3000
+    depends_on:
+      - mongo
+      - redis
+    networks:
+      - pollpulse-net
+
+  # React Frontend (Nginx SPA)
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: pollpulse-frontend
+    restart: unless-stopped
+    ports:
+      - "3000:80"
+    depends_on:
+      - backend
+    networks:
+      - pollpulse-net
+
+networks:
+  pollpulse-net:
+    driver: bridge
+
+volumes:
+  mongo_data:
+  redis_data:
