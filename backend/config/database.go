@@ -2,7 +2,9 @@ package config
 
 import (
 	"context"
+	"fmt"
 	"log"
+	"net"
 	"time"
 
 	"github.com/alicebob/miniredis/v2"
@@ -47,26 +49,34 @@ func ConnectRedis(cfg *Config) (*redis.Client, error) {
 		}
 	}
 
-	rdb := redis.NewClient(opts)
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancel()
+	// 1. Fast TCP connection check to prevent go-redis retry spam if port is closed
+	conn, tcpErr := net.DialTimeout("tcp", opts.Addr, 1*time.Second)
+	if tcpErr == nil {
+		_ = conn.Close()
+		rdb := redis.NewClient(opts)
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
 
-	if _, err := rdb.Ping(ctx).Result(); err != nil {
-		log.Printf("[Redis] Notice: External Redis at [%s] not reachable (%v)\n", cfg.RedisURL, err)
-		log.Println("[Redis] Starting embedded in-memory Redis instance for local development...")
-		mr, mrErr := miniredis.Run()
-		if mrErr != nil {
-			return nil, err
+		if _, err := rdb.Ping(ctx).Result(); err == nil {
+			RedisClient = rdb
+			log.Printf("Successfully connected to Redis server at [%s]\n", opts.Addr)
+			return RedisClient, nil
 		}
-		MiniRedis = mr
-		rdb = redis.NewClient(&redis.Options{
-			Addr: mr.Addr(),
-		})
-		log.Printf("[Redis] In-memory Redis successfully initialized at [%s]\n", mr.Addr())
 	}
 
-	RedisClient = rdb
-	log.Printf("Successfully connected to Redis at [%s]\n", rdb.Options().Addr)
+	// 2. Resilient fallback to embedded in-memory Redis instance
+	log.Printf("[Redis] Notice: External Redis server at [%s] not reachable (%v)\n", opts.Addr, tcpErr)
+	log.Println("[Redis] Starting embedded in-memory Redis instance for local development...")
+	mr, mrErr := miniredis.Run()
+	if mrErr != nil {
+		return nil, fmt.Errorf("failed to start fallback miniredis: %w", mrErr)
+	}
+	MiniRedis = mr
+	RedisClient = redis.NewClient(&redis.Options{
+		Addr: mr.Addr(),
+	})
+	log.Printf("Successfully connected to Redis at [%s] (Embedded In-Memory)\n", mr.Addr())
 	return RedisClient, nil
 }
+
 
