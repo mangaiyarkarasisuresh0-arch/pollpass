@@ -20,6 +20,7 @@ backend/*.exe
 redis/*.exe
 redis/*.pdb
 redis/*.zip
+*.rdb
 redis/dump.rdb
 
 # Logs
