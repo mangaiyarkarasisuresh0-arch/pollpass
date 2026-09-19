@@ -5,6 +5,7 @@ import (
 	"log"
 	"time"
 
+	"github.com/alicebob/miniredis/v2"
 	"github.com/redis/go-redis/v9"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
@@ -14,6 +15,7 @@ var (
 	MongoClient *mongo.Client
 	MongoDB     *mongo.Database
 	RedisClient *redis.Client
+	MiniRedis   *miniredis.Miniredis
 )
 
 func ConnectMongoDB(cfg *Config) (*mongo.Database, error) {
@@ -46,14 +48,25 @@ func ConnectRedis(cfg *Config) (*redis.Client, error) {
 	}
 
 	rdb := redis.NewClient(opts)
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
 	if _, err := rdb.Ping(ctx).Result(); err != nil {
-		return nil, err
+		log.Printf("[Redis] Notice: External Redis at [%s] not reachable (%v)\n", cfg.RedisURL, err)
+		log.Println("[Redis] Starting embedded in-memory Redis instance for local development...")
+		mr, mrErr := miniredis.Run()
+		if mrErr != nil {
+			return nil, err
+		}
+		MiniRedis = mr
+		rdb = redis.NewClient(&redis.Options{
+			Addr: mr.Addr(),
+		})
+		log.Printf("[Redis] In-memory Redis successfully initialized at [%s]\n", mr.Addr())
 	}
 
 	RedisClient = rdb
-	log.Printf("Successfully connected to Redis at [%s]\n", cfg.RedisURL)
+	log.Printf("Successfully connected to Redis at [%s]\n", rdb.Options().Addr)
 	return RedisClient, nil
 }
+

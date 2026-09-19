@@ -97,6 +97,9 @@ func main() {
 	if config.RedisClient != nil {
 		_ = config.RedisClient.Close()
 	}
+	if config.MiniRedis != nil {
+		config.MiniRedis.Close()
+	}
 
 	log.Println("Server cleanly stopped")
 }
